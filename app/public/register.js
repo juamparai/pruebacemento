@@ -1,6 +1,6 @@
 document.getElementById("register-form").addEventListener("submit", async (e) => {
     e.preventDefault();  // Evitar el comportamiento por defecto del formulario
-  
+
     // Obtener los valores de los campos
     const user = document.getElementById("user").value;
     const email = document.getElementById("email").value;
@@ -10,7 +10,7 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
     if (!user || !email || !password) {
       return showError("Completar todos los campos.");
     }
-  
+    document.getElementById("register-form").reset();
     try {
       // Hacer la solicitud POST al servidor
       const res = await fetch("http://localhost:4000/api/register", {
@@ -35,6 +35,8 @@ document.getElementById("register-form").addEventListener("submit", async (e) =>
         return showError("Error al registrar el usuario. Intente de nuevo.");
       }
   
+      
+      
       // Si hay una redirección, redirigir al usuario
       if (data.redirect) {
         window.location.href = data.redirect;

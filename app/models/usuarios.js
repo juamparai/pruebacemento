@@ -1,22 +1,38 @@
 import pool from "../config/database.js"
 
-export const addUsuario = async (username, email, password) => {
+const addUsuario = async (username, email, password) => {
     const [result] = await pool.query("INSERT INTO usuarios (username, email, password) VALUES (?, ?,?)", [username, email, password]);
     return result.insertId; // Devuelve el ID del nuevo usuario
   }
 
-export const checkUserExists = async (email) => {
+const checkEmailExists = async (email) => {
     const [result] = await pool.query("SELECT * FROM usuarios WHERE email = ?", [email]);
     return result.length > 0
 }
 
-export const getUserPassword = async (email) => {
-  const [result] = await pool.query("SELECT password FROM usuarios WHERE email = ?", [email]);
-  
+const getUserData = async (email) => {
+  const [rows] = await pool.query("SELECT password, verificado FROM usuarios WHERE email = ?", [email]);
+
   // Verifica si se encontró un usuario
-  if (result.length === 0) {
+  if (rows.length === 0) {
     return null; // Devuelve null si no hay resultados
   }
   
-  return result[0].password; // Devuelve solo la contraseña
+  return {
+    password: rows[0].password,
+    verificado: rows[0].verificado
+  };  
 };
+
+const verifyEmailDB = async (email) => {
+  const [result] = await pool.query(
+    "UPDATE usuarios SET verificado = true WHERE email = ?", [email]);
+  return result; 
+}
+
+export const methods = {
+  addUsuario,
+  checkEmailExists,
+  getUserData,
+  verifyEmailDB
+}

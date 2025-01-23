@@ -1,6 +1,6 @@
 import JsonWebToken from "jsonwebtoken";
 import dotenv from "dotenv"
-import { checkUserExists } from "../models/usuarios.js";
+import { methods as query } from "../models/usuarios.js";
 
 
 function soloPublico(req,res,next){
@@ -29,7 +29,7 @@ function checkCookie(req){
         const token = cookieJWT.slice(4); // Extrae el token JWT
         const decodified = JsonWebToken.verify(token, process.env.JWT_SECRET);
 
-        if (!checkUserExists(decodified.user)) {
+        if (!query.checkEmailExists(decodified.email)) {
             console.log("El usuario no existe.");
             return false;
         }

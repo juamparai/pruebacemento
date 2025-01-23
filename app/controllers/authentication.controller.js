@@ -1,9 +1,8 @@
 import bcryptjs from "bcryptjs";
 import jsonwebtoken from "jsonwebtoken"
-import { addUsuario } from "../models/usuarios.js";
 import pool from "../config/database.js"
 import { verificationMail } from "../services/mail.js";
-import { getUserPassword } from "../models/usuarios.js";
+import { methods as query } from "../models/usuarios.js";
 
 async function login(req, res) {
     console.log(req.body);
@@ -16,15 +15,18 @@ async function login(req, res) {
     }
 
     // Verificar si el email existe
-    const usuarioAResvisar = await checkIfEmailExists(email);
+    const usuarioAResvisar = await query.checkEmailExists(email);
     if (!usuarioAResvisar) {
         return res.status(400).send({ status: "Error", message: "Email no registrado" });
     }
 
     // Comparar la contraseña proporcionada con la almacenada
-    const hashedPassword = await getUserPassword(email);
-    const loginCorrecto = await bcryptjs.compare(password, hashedPassword);
-    if (!loginCorrecto) {
+    const userData = await query.getUserData(email);
+    const loginCorrecto = await bcryptjs.compare(password, userData.password)
+    if (!userData.verificado){
+      return res.status(400).send({ status: "Error", message: "Debe verificar la cuenta" });
+    }
+    if (!loginCorrecto ) {
         return res.status(400).send({ status: "Error", message: "Contraseña incorrecta" });
     }
 
@@ -59,7 +61,7 @@ export async function register(req, res) {
     }
 
     // Verificación de email duplicado (esto también puede estar en el modelo)
-    const usuarioExistente = await checkIfEmailExists(email);
+    const usuarioExistente = await query.checkEmailExists(email);
     if (usuarioExistente) {
         return res.status(400).send({ status: "Error", message: "El email ya está registrado" });
     }
@@ -75,33 +77,28 @@ export async function register(req, res) {
     };
 
     try {
-        // Intentamos agregar al usuario en la base de datos
-        await addUsuario(nuevoUsuario.user, nuevoUsuario.email, nuevoUsuario.password);
+        // Primero, intentamos enviar el correo de verificación
+        const verificationToken = jsonwebtoken.sign(
+            { email: nuevoUsuario.email },
+            process.env.JWT_SECRET,
+            { expiresIn: process.env.JWT_EXPIRATION }
+        );
+    
+        const sendVerificationMail = await verificationMail(nuevoUsuario.email, verificationToken); // Envía el correo
+        console.log("Correo enviado con éxito:", sendVerificationMail);
+    
+        // Si el correo se envió correctamente, agregamos el usuario a la base de datos
+        await query.addUsuario(nuevoUsuario.user, nuevoUsuario.email, nuevoUsuario.password);
         
-        try {
-            const sendVerificationMail = await verificationMail(email); // Ahora te devolverá la respuesta de sendMail
-            console.log("Correo enviado con éxito:", sendVerificationMail);
-        } catch (error) {
-            console.error("Hubo un error al enviar el correo:", error);
-        }
         return res.status(201).send({ status: "Success", message: "Usuario registrado correctamente" });
     } catch (error) {
-        // En caso de error en la base de datos
-        console.error('Error al agregar el usuario:', error.message);
-        return res.status(500).send({ status: "Error", message: "Error al registrar el usuario" });
+        // Si ocurrió un error, mostramos el mensaje correspondiente
+        console.error("Error:", error.message);
+        return res.status(500).send({ status: "Error", message: error.message });
     }
 }
 
-// Función que verifica si el email ya existe
-async function checkIfEmailExists(email) {
-    try {
-        const [rows] = await pool.execute('SELECT * FROM usuarios WHERE email = ?', [email]);
-        return rows.length > 0;
-    } catch (error) {
-        console.error('Error al verificar email:', error.message);
-        return false;
-    }
-}
+
 
 async function logout(req, res) {
     console.log('Iniciando proceso de logout...');
@@ -117,8 +114,66 @@ async function logout(req, res) {
     res.send({ status: "ok", message: "Usuario desloggeado" });
 }
 
+async function verifyAccount(req, res) {
+    try {
+      // Verifica si el token está presente
+      if (!req.params.token) {
+        console.log("no hay token")
+        return res.redirect("/"); // Redirige si no hay token
+      }
+  
+      let decodedToken;
+      try {
+        decodedToken = jsonwebtoken.verify(req.params.token, process.env.JWT_SECRET);
+      } catch (error) {
+        return res.status(400).send({ status: "error", message: "Token no válido o expirado" });
+      }
+  
+      // Verifica si la decodificación fue exitosa y si el email está presente
+      if (!decodedToken || !decodedToken.email) {
+        console.log("no tiene email")
+        return res.status(400).send({ status: "error", message: "Error en el token" });
+      }
+  
+      // Verifica si el usuario con el email existe en la base de datos
+      const user = await query.checkEmailExists(decodedToken.email);
+      if (!user) {
+        console.log("no encontre usuario")
+        return res.status(404).send({ status: "error", message: "Usuario no encontrado" });
+      }
+  
+      // Llama a la función para verificar el email y actualizar el estado de verificación
+      await query.verifyEmailDB(decodedToken.email);
+  
+      // Crea un nuevo token para el usuario
+      const token = jsonwebtoken.sign(
+        { email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: process.env.JWT_EXPIRATION }
+      );
+  
+      // Opciones para la cookie
+      const cookieOptions = {
+        expires: new Date(Date.now() + process.env.JWT_COOKIE_EXPIRES * 24 * 60 * 60 * 1000),
+        path: "/",
+        secure: process.env.NODE_ENV === 'production', // Solo en producción
+      };
+  
+      // Configura la cookie JWT
+      res.cookie("jwt", token, cookieOptions);
+  
+      // Redirige al admin tras verificar
+      return res.redirect("/admin");
+  
+    } catch (error) {
+      // Maneja cualquier error durante la verificación
+      console.error("Error al verificar cuenta:", error);
+      return res.status(500).send({ status: "error", message: "Hubo un problema al verificar la cuenta" });
+    }
+  } 
 export const methods = {
     login,
     register,
     logout,
+    verifyAccount,
 }
